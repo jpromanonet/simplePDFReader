@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 from pdf2image import convert_from_path, pdfinfo_from_path
 from PIL import Image, ImageTk
 
@@ -7,20 +7,14 @@ class PDFViewer:
     def __init__(self, root):
         self.root = root
         self.root.title("Simple PDF Reader")
-        self.current_page = 0
-        self.page_count = 0
-        self.pdf_path = None
-        self.poppler_path = r"C:\poppler\Library\bin"
-        self.current_image = None
-        self.zoom = 0.8  # 🔥 Default zoom set to 80%
-        self.dark_mode = False  
+        self.tabs = {}  # Store open PDFs in a dictionary
 
         # 🖥 Set window to large size
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         root.geometry(f"{int(screen_width * 0.8)}x{int(screen_height * 0.8)}+{int(screen_width * 0.1)}+{int(screen_height * 0.1)}")
 
-        # Scrollable Canvas Setup
+        # Main frame for canvas
         self.canvas_frame = tk.Frame(root)
         self.canvas_frame.pack(fill="both", expand=True)
 
@@ -36,10 +30,10 @@ class PDFViewer:
 
         self.root.bind("<KeyPress-Up>", self.scroll_up)
         self.root.bind("<KeyPress-Down>", self.scroll_down)
-        self.root.bind("<Configure>", self.on_resize)
+        self.root.bind("<Configure>", self.on_resize)  # ✅ Fixed missing method
 
         # Canvas window for image (will be centered)
-        self.image_container = self.canvas.create_image(0, 0, anchor='n')  # Anchor at the **top (n)** to avoid cutting top
+        self.image_container = self.canvas.create_image(0, 0, anchor='n')
 
         # Buttons
         btn_frame = tk.Frame(root)
@@ -56,17 +50,57 @@ class PDFViewer:
         self.page_entry.pack(side="left", padx=2)
         tk.Button(btn_frame, text="Go", command=self.go_to_page).pack(side="left", padx=2)
 
+        # Tabs at the bottom
+        self.tab_frame = tk.Frame(root)
+        self.tab_frame.pack(side="bottom", fill="x")
+
+        self.tab_control = ttk.Notebook(self.tab_frame)
+        self.tab_control.pack(fill="x")
+
+        # Default values
+        self.current_page = 0
+        self.page_count = 0
+        self.pdf_path = None
+        self.poppler_path = r"C:\poppler\Library\bin"
+        self.current_image = None
+        self.zoom = 0.8
+        self.dark_mode = False  
+
     def open_pdf(self):
+        """Opens a new PDF and creates a new tab."""
         filepath = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
         if filepath:
+            file_name = filepath.split("/")[-1]
+
+            if file_name in self.tabs:
+                self.tab_control.select(self.tabs[file_name]['tab'])  # Switch to existing tab
+                return
+
+            # Create a new tab
+            new_tab = tk.Frame(self.tab_control)
+            self.tab_control.add(new_tab, text=file_name)
+            self.tab_control.select(new_tab)
+
+            self.tabs[file_name] = {
+                "frame": new_tab,
+                "pdf_path": filepath,
+                "current_page": 0,
+                "zoom": 0.8
+            }
+
             self.pdf_path = filepath
             self.current_page = 0
             self.page_count = int(pdfinfo_from_path(filepath, poppler_path=self.poppler_path)['Pages'])
-            self.zoom = 0.8  # 🔥 Reset zoom to 80% every time a new PDF is opened
+            self.zoom = 0.8
             self.root.after(100, self.fit_to_width)
 
+    def on_resize(self, event):
+        """Resize the PDF display properly when the window resizes."""
+        if self.pdf_path:
+            self.fit_to_width()
+
     def fit_to_width(self):
-        """Automatically adjust zoom to fit width properly when the window is resized"""
+        """Automatically adjust zoom to fit width properly."""
         if self.pdf_path:
             temp_image = convert_from_path(
                 self.pdf_path,
@@ -78,12 +112,13 @@ class PDFViewer:
 
             canvas_width = self.canvas.winfo_width()
             if canvas_width > 0:  
-                self.zoom = 0.8  # Ensure default zoom is always 80%
+                self.zoom = 0.8  # Default to 80% zoom
 
             self.load_page_image()
             self.show_page()
 
     def load_page_image(self):
+        """Loads and renders the current page."""
         if self.pdf_path:
             try:
                 page_image = convert_from_path(
@@ -98,6 +133,7 @@ class PDFViewer:
                 print("Error loading page:", e)
 
     def show_page(self):
+        """Displays the current PDF page in the viewer."""
         if self.current_image:
             target_width = int(self.current_image.width * self.zoom)
             target_height = int(self.current_image.height * self.zoom)
@@ -107,69 +143,58 @@ class PDFViewer:
             self.canvas.image = img  
             self.canvas.itemconfig(self.image_container, image=img)
 
-            # **Ensure full page is visible**
             canvas_width = self.canvas.winfo_width()
-            x = canvas_width // 2  # Center horizontally
-            y = 0  # Start at the **top** so you can see the whole page
+            x = canvas_width // 2
+            y = 0
             self.canvas.coords(self.image_container, x, y)
 
-            # **Fix scrolling issue (Make full page scrollable)**
             self.canvas.config(scrollregion=(0, 0, max(canvas_width, target_width), max(target_height, self.canvas.winfo_height())))
 
             self.root.title(f"Simple PDF Reader - Page {self.current_page + 1} of {self.page_count} - Zoom {int(self.zoom * 100)}%")
 
-    def scroll_down(self, event=None):
-        """Scroll down using the Down Arrow key, move to next page at the bottom"""
-        _, _, _, y2 = self.canvas.bbox("all")
-        scroll_pos = self.canvas.yview()[0]
-
-        if scroll_pos >= 0.95 and self.current_page < self.page_count - 1:
-            self.next_page()
-        else:
-            self.canvas.yview_scroll(1, "units")
-
-        # If scrollbar is at the end, trigger next page
-        if self.v_scroll.get()[1] >= 1.0 and self.current_page < self.page_count - 1:
-            self.next_page()
-
-    def scroll_up(self, event=None):
-        """Scroll up using the Up Arrow key, move to previous page at the top"""
-        current_scroll = self.canvas.yview()[0]
-
-        if current_scroll <= 0.05 and self.current_page > 0:
-            self.prev_page()
-        else:
-            self.canvas.yview_scroll(-1, "units")
-
     def next_page(self, event=None):
+        """Go to the next page."""
         if self.current_page < self.page_count - 1:
             self.current_page += 1
             self.load_page_image()
             self.show_page()
-            self.canvas.yview_moveto(0)  # Move to the top of the new page
+            self.canvas.yview_moveto(0)
 
     def prev_page(self, event=None):
+        """Go to the previous page."""
         if self.current_page > 0:
             self.current_page -= 1
             self.load_page_image()
             self.show_page()
-            self.canvas.yview_moveto(0)  # Move to the top of the new page
+            self.canvas.yview_moveto(0)
 
-    def on_resize(self, event):
-        """Resize properly while keeping everything visible"""
-        if self.current_image:
-            self.fit_to_width()
+    def scroll_down(self, event=None):
+        """Scroll down, moving to the next page if at the bottom."""
+        if self.canvas.yview()[1] >= 1.0 and self.current_page < self.page_count - 1:
+            self.next_page()
+        else:
+            self.canvas.yview_scroll(1, "units")
+
+    def scroll_up(self, event=None):
+        """Scroll up, moving to the previous page if at the top."""
+        if self.canvas.yview()[0] <= 0.0 and self.current_page > 0:
+            self.prev_page()
+        else:
+            self.canvas.yview_scroll(-1, "units")
 
     def zoom_in(self):
+        """Increase zoom."""
         self.zoom += 0.1
         self.show_page()
 
     def zoom_out(self):
+        """Decrease zoom."""
         if self.zoom > 0.2:
             self.zoom -= 0.1
             self.show_page()
 
     def go_to_page(self):
+        """Jump to a specific page."""
         try:
             page = int(self.page_entry.get()) - 1
             if 0 <= page < self.page_count:
@@ -181,7 +206,7 @@ class PDFViewer:
             pass
 
     def toggle_dark_mode(self):
-        """Fix dark mode background issue"""
+        """Toggle dark mode."""
         self.dark_mode = not self.dark_mode
         bg_color = "black" if self.dark_mode else "gray"
         self.root.configure(bg=bg_color)
