@@ -102,21 +102,29 @@ class PDFViewer:
             style_name = f"{file_name}.TFrame"
             style = ttk.Style()
             style.configure(style_name, background=color)
-            # Generate color emoji/square for visual difference
-            color_square = "🟦" if len(self.used_colors) % 5 == 0 else \
-                        "🟥" if len(self.used_colors) % 5 == 1 else \
-                        "🟩" if len(self.used_colors) % 5 == 2 else \
-                        "🟨" if len(self.used_colors) % 5 == 3 else "🟪"
+            # Generate random readable color
+            def get_random_color():
+                while True:
+                    r = lambda: random.randint(80, 200)
+                    color = f'#{r():02x}{r():02x}{r():02x}'
+                    if color not in self.used_colors:
+                        self.used_colors.add(color)
+                        return color
 
-            tab_text = f"{color_square} {file_name} ❌"
+            tab_color = get_random_color()
+            tab_text = f"{file_name}  ❌"
             self.tab_control.add(new_tab, text=tab_text)
             self.tab_control.select(new_tab)
+
+            color_bar = tk.Frame(new_tab, width=10, bg=tab_color)
+            color_bar.pack(side="left", fill="y")
 
             self.tabs[file_name] = {
                 "frame": new_tab,
                 "pdf_path": filepath,
                 "current_page": 0,
-                "zoom": 0.8
+                "zoom": 0.8,
+                "color": tab_color
             }
 
             self.pdf_path = filepath
@@ -152,13 +160,18 @@ class PDFViewer:
         self.last_tab = selected_tab
     
     def close_tab_click(self, event):
-        """Detect if the close (❌) on the tab was clicked."""
+        """Detect click on ❌ inside tab title."""
         x, y = event.x, event.y
-        element = self.tab_control.identify(event.x, event.y)
+        element = self.tab_control.identify(x, y)
         if "label" in element:
             index = self.tab_control.index(f"@{x},{y}")
             tab_text = self.tab_control.tab(index, "text")
-            if tab_text.endswith("❌"):
+            # Measure where ❌ starts roughly by estimating character width
+            font = ("TkDefaultFont", 10)
+            char_width = 8  # Approximate width in pixels
+            text_length = len(tab_text)
+            close_pos = char_width * (text_length - 1)
+            if x > close_pos - 20:  # Only close if near the ❌ area
                 self.close_tab(index)
 
     def close_tab(self, index):
