@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from pdf2image import convert_from_path, pdfinfo_from_path
 from PIL import Image, ImageTk
+from tkinter import messagebox
 import random
 
 class PDFViewer:
@@ -24,10 +25,9 @@ class PDFViewer:
         self.tab_control = ttk.Notebook(self.tab_frame)
         self.tab_control.pack(fill="x")
 
-        self.tab_control.bind("<Button-1>", self.close_tab_click)
-
         # Bind tab change event
         self.tab_control.bind("<<NotebookTabChanged>>", self.on_tab_change)
+        self.active_tab_data = None  # Stores the currently active tab dictionary
 
         # Main frame for canvas
         self.canvas_frame = tk.Frame(root)
@@ -55,6 +55,7 @@ class PDFViewer:
         btn_frame.pack(pady=4)
 
         tk.Button(btn_frame, text="Open PDF", command=self.open_pdf).pack(side="left", padx=2)
+        tk.Button(btn_frame, text="Close Tab", command=self.confirm_close_current_tab).pack(side="left", padx=2)
         tk.Button(btn_frame, text="<< Prev", command=self.prev_page).pack(side="left", padx=2)
         tk.Button(btn_frame, text="Next >>", command=self.next_page).pack(side="left", padx=2)
         tk.Button(btn_frame, text="Zoom +", command=self.zoom_in).pack(side="left", padx=2)
@@ -112,7 +113,9 @@ class PDFViewer:
                         return color
 
             tab_color = get_random_color()
-            tab_text = f"{file_name}  ❌"
+            colors = ["🟥", "🟦", "🟩", "🟨", "🟪", "🟫"]
+            emoji = colors[len(self.used_colors) % len(colors)]
+            tab_text = f"{emoji} {file_name}"
             self.tab_control.add(new_tab, text=tab_text)
             self.tab_control.select(new_tab)
 
@@ -124,7 +127,8 @@ class PDFViewer:
                 "pdf_path": filepath,
                 "current_page": 0,
                 "zoom": 0.8,
-                "color": tab_color
+                "color": tab_color,
+                "scroll": 0.0
             }
 
             self.pdf_path = filepath
@@ -144,36 +148,27 @@ class PDFViewer:
                 if str(tab_data['frame']) == str(self.last_tab):
                     tab_data['current_page'] = self.current_page
                     tab_data['zoom'] = self.zoom
+                    tab_data['scroll'] = self.canvas.yview()[0]  # Save scroll position
                     break
 
         # Load the selected tab state
         for name, tab_data in self.tabs.items():
             if str(tab_data['frame']) == str(selected_tab):
+                self.active_tab_data = tab_data  # Save tab_data for later use
                 self.pdf_path = tab_data['pdf_path']
                 self.current_page = tab_data['current_page']
                 self.zoom = tab_data['zoom']
                 self.page_count = int(pdfinfo_from_path(self.pdf_path, poppler_path=self.poppler_path)['Pages'])
                 self.load_page_image()
                 self.show_page()
+
+                # Restore scroll after showing page
+                scroll_value = tab_data['scroll']
+                self.root.after(50, lambda: self.canvas.yview_moveto(scroll_value))
                 break
 
         self.last_tab = selected_tab
     
-    def close_tab_click(self, event):
-        """Detect click on ❌ inside tab title."""
-        x, y = event.x, event.y
-        element = self.tab_control.identify(x, y)
-        if "label" in element:
-            index = self.tab_control.index(f"@{x},{y}")
-            tab_text = self.tab_control.tab(index, "text")
-            # Measure where ❌ starts roughly by estimating character width
-            font = ("TkDefaultFont", 10)
-            char_width = 8  # Approximate width in pixels
-            text_length = len(tab_text)
-            close_pos = char_width * (text_length - 1)
-            if x > close_pos - 20:  # Only close if near the ❌ area
-                self.close_tab(index)
-
     def close_tab(self, index):
         """Closes the tab at the given index."""
         tab = self.tab_control.tabs()[index]
@@ -189,6 +184,20 @@ class PDFViewer:
             self.current_image = None
             self.canvas.delete(self.image_container)
             self.root.title("BareReader")
+    
+    def confirm_close_current_tab(self):
+        """Ask for confirmation and close the current tab."""
+        current_tab = self.tab_control.select()
+        if not current_tab:
+            return
+
+        for name, tab_data in list(self.tabs.items()):
+            if str(tab_data['frame']) == str(current_tab):
+                confirm = messagebox.askyesno("Close Tab", f"Do you want to close '{name}'?")
+                if confirm:
+                    index = self.tab_control.index(current_tab)
+                    self.close_tab(index)
+                return
 
     def on_resize(self, event):
         """Resize the PDF display properly when the window resizes."""
@@ -212,6 +221,9 @@ class PDFViewer:
 
             self.load_page_image()
             self.show_page()
+            if self.active_tab_data:
+                scroll_value = self.active_tab_data['scroll']
+                self.root.after(50, lambda: self.canvas.yview_moveto(scroll_value))
 
     def load_page_image(self):
         """Loads and renders the current page."""
