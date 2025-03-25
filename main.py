@@ -68,9 +68,10 @@ class PDFViewer:
         self.dark_mode = False
         self.current_doc = None
 
-        if os.path.exists("last_session.json"):
+        session_path = self.get_session_path()
+        if os.path.exists(session_path):
             try:
-                with open("last_session.json", "r") as f:
+                with open(session_path, "r") as f:
                     session = json.load(f)
                     self.pdf_path = session.get("pdf_path")
                     self.current_page = session.get("page", 0)
@@ -79,6 +80,10 @@ class PDFViewer:
                         self.restore_last_session()
             except Exception as e:
                 print(f"Error loading last session: {e}")
+
+    def get_session_path(self):
+        import os
+        return os.path.join(os.getenv("APPDATA"), "BareReader", "last_session.json")
 
     def restore_last_session(self):
         file_name = os.path.basename(self.pdf_path)
@@ -115,17 +120,20 @@ class PDFViewer:
         self.show_page()
 
     def on_close(self):
-        if self.pdf_path:
-            try:
-                with open("last_session.json", "w") as f:
+        try:
+            if self.pdf_path:
+                session_path = self.get_session_path()
+                os.makedirs(os.path.dirname(session_path), exist_ok=True)
+                with open(session_path, "w") as f:
                     json.dump({
                         "pdf_path": self.pdf_path,
                         "page": self.current_page,
                         "zoom": self.zoom
                     }, f)
-            except Exception as e:
-                print(f"Error saving session: {e}")
-        self.root.destroy()
+        except Exception as e:
+            print(f"Error saving session: {e}")
+        finally:
+            self.root.destroy()
         
     def on_resize(self, event):
         if self.pdf_path:
