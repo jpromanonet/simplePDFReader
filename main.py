@@ -5,6 +5,7 @@ import fitz  # PyMuPDF
 import os
 import sys
 import random
+import json
 
 class PDFViewer:
     def __init__(self, root):
@@ -57,6 +58,7 @@ class PDFViewer:
         self.root.bind("<MouseWheel>", self.on_mouse_scroll)
         self.root.bind("<Button-4>", self.on_mouse_scroll)
         self.root.bind("<Button-5>", self.on_mouse_scroll)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.current_page = 0
         self.page_count = 0
@@ -66,6 +68,65 @@ class PDFViewer:
         self.dark_mode = False
         self.current_doc = None
 
+        if os.path.exists("last_session.json"):
+            try:
+                with open("last_session.json", "r") as f:
+                    session = json.load(f)
+                    self.pdf_path = session.get("pdf_path")
+                    self.current_page = session.get("page", 0)
+                    self.zoom = session.get("zoom", 1.5)
+                    if self.pdf_path and os.path.exists(self.pdf_path):
+                        self.restore_last_session()
+            except Exception as e:
+                print(f"Error loading last session: {e}")
+
+    def restore_last_session(self):
+        file_name = os.path.basename(self.pdf_path)
+        new_tab = tk.Frame(self.tab_control)
+        color = f'#{random.randint(50,200):02x}{random.randint(50,200):02x}{random.randint(50,200):02x}'
+        tab_color = color
+        emoji = "🔄"
+        tab_text = f"{emoji} {file_name}"
+        self.tab_control.add(new_tab, text=tab_text)
+        self.tab_control.select(new_tab)
+
+        color_bar = tk.Frame(new_tab, width=10, bg=tab_color)
+        color_bar.pack(side="left", fill="y")
+
+        try:
+            doc = fitz.open(self.pdf_path)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open PDF.\n\n{e}")
+            return
+
+        self.tabs[file_name] = {
+            "frame": new_tab,
+            "pdf_path": self.pdf_path,
+            "current_page": self.current_page,
+            "zoom": self.zoom,
+            "color": tab_color,
+            "scroll": 0.0,
+            "doc": doc
+        }
+
+        self.current_doc = doc
+        self.page_count = len(doc)
+        self.load_page_image()
+        self.show_page()
+
+    def on_close(self):
+        if self.pdf_path:
+            try:
+                with open("last_session.json", "w") as f:
+                    json.dump({
+                        "pdf_path": self.pdf_path,
+                        "page": self.current_page,
+                        "zoom": self.zoom
+                    }, f)
+            except Exception as e:
+                print(f"Error saving session: {e}")
+        self.root.destroy()
+        
     def on_resize(self, event):
         if self.pdf_path:
             self.fit_to_width()
